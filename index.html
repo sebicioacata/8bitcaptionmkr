@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>8-Bit Dialogue Caption Maker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="grid-overlay" aria-hidden="true"></div>
+    <main class="app-shell">
+      <section class="panel controls-panel">
+        <header class="panel-header">
+          <p class="eyebrow">Retro Toolkit</p>
+          <h1>8-Bit Dialogue Caption Maker</h1>
+          <p class="subtext">
+            Load a gameplay video, type timed dialogue, preview directly over the reel, and export a chroma-key caption layer.
+          </p>
+        </header>
+
+        <div class="card source-card-left">
+          <div class="row between">
+            <label class="field-label source-picker-label" for="videoInput">Source video</label>
+            <button id="chooseVideoBtn" class="ghost-btn action-btn-fixed source-load-btn" type="button">Choose File</button>
+          </div>
+          <p id="videoMeta" class="muted source-meta-inline">No video loaded.</p>
+          <input id="videoInput" type="file" accept="video/*" hidden />
+        </div>
+
+        <div class="card">
+          <div class="row between">
+            <label class="field-label" for="captionText">Dialogue text</label>
+            <div class="cue-header-actions">
+              <button id="exportCuesBtn" class="ghost-btn cue-utility-btn" type="button">Export</button>
+              <button id="importCuesBtn" class="ghost-btn cue-utility-btn" type="button">Import</button>
+              <button id="clearCaptionsBtn" class="ghost-btn action-btn-fixed" type="button">Clear all</button>
+            </div>
+          </div>
+          <input id="importCuesInput" type="file" accept="application/json,.json" hidden />
+          <textarea
+            id="captionText"
+            rows="4"
+            placeholder="Type your dialogue here..."
+          ></textarea>
+          <p class="cue-subhead">Timing</p>
+          <div class="cue-controls-inline">
+            <div class="cue-input-cluster">
+              <label class="cue-time-group" for="captionStart">
+                <span>Start (sec)</span>
+                <input id="captionStart" type="number" min="0" step="0.01" value="0" />
+              </label>
+              <button
+                id="setStartBtn"
+                class="ghost-btn cue-mini-btn"
+                type="button"
+                title="Use current playhead time for start"
+              >
+                Now
+              </button>
+            </div>
+            <div class="cue-input-cluster">
+              <label class="cue-time-group" for="captionEnd">
+                <span>End (sec)</span>
+                <input id="captionEnd" type="number" min="0" step="0.01" value="2" />
+              </label>
+              <button
+                id="setEndBtn"
+                class="ghost-btn cue-mini-btn"
+                type="button"
+                title="Use current playhead time for end"
+              >
+                Now
+              </button>
+            </div>
+            <div class="cue-action-row">
+              <button id="addCaptionBtn" class="primary-btn cue-add-btn" type="button">Add cue</button>
+              <button id="cancelEditBtn" class="ghost-btn cue-cancel-btn" type="button" hidden>Cancel edit</button>
+            </div>
+          </div>
+          <p class="muted cue-help">Type exact start/end times directly, or press Now to copy playhead time.</p>
+          <div class="cue-meta-grid">
+            <div class="cue-mode-row">
+              <label class="field-label" for="captionMode">Cue type</label>
+              <select id="captionMode">
+                <option value="dialogue" selected>Dialogue Box</option>
+                <option value="choice">Action Choice Box</option>
+                <option value="dramatic">Dramatic Free Text</option>
+              </select>
+            </div>
+            <div class="cue-behavior-row">
+              <label class="checkbox-wrap cue-checkbox" for="cueInstantShow">
+                <input id="cueInstantShow" type="checkbox" />
+                <span>Instant show (no typewriter/fade)</span>
+              </label>
+              <label class="checkbox-wrap cue-checkbox" for="cueTextOnly">
+                <input id="cueTextOnly" type="checkbox" />
+                <span>Text only (no backdrop, dramatic)</span>
+              </label>
+            </div>
+          </div>
+          <p id="cueModeHint" class="muted cue-help">Choice mode format: prompt, blank line, then options; prefix selected option with <code>&gt;</code>.</p>
+          <ul id="captionList" class="caption-list"></ul>
+        </div>
+
+        <div class="card">
+          <h2>Style & Output</h2>
+          <div class="compact-grid">
+            <div>
+              <label class="field-label" for="pixelScale">Pixel scale</label>
+              <input id="pixelScale" data-rerender="true" type="range" min="2" max="12" step="1" value="4" />
+              <p id="pixelScaleValue" class="muted">4x</p>
+            </div>
+            <div>
+              <label class="field-label" for="textPixelation">Text pixelation</label>
+              <input id="textPixelation" data-rerender="true" type="range" min="0.5" max="2.4" step="0.1" value="1" />
+              <p id="textPixelationValue" class="muted">1.0x</p>
+            </div>
+            <div>
+              <label class="field-label" for="fontSize">Font size</label>
+              <input id="fontSize" data-rerender="true" type="number" min="6" max="30" step="1" value="12" />
+            </div>
+            <div>
+              <label class="field-label" for="boxWidth">Box width (%)</label>
+              <input id="boxWidth" data-rerender="true" type="number" min="40" max="95" step="1" value="85" />
+            </div>
+            <div>
+              <label class="field-label" for="boxStyle">Dialogue box style</label>
+              <select id="boxStyle" data-rerender="true">
+                <option value="reference_veo" selected>Stepped White Frame (VEO)</option>
+                <option value="nes_classic">NES Classic (double white)</option>
+                <option value="minimal_white">Minimal White Frame</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label" for="bottomOffset">Bottom offset (px)</label>
+              <input id="bottomOffset" data-rerender="true" type="number" min="4" max="200" step="1" value="100" />
+            </div>
+          </div>
+
+          <details class="compact-details">
+            <summary>Advanced Text & Color</summary>
+            <div class="compact-grid">
+              <div>
+                <label class="field-label" for="textColor">Text color</label>
+                <input id="textColor" data-rerender="true" type="color" value="#f8f8f0" />
+              </div>
+              <div>
+                <label class="field-label" for="chromaColor">Chroma key color</label>
+                <input id="chromaColor" data-rerender="true" type="color" value="#00ff00" />
+              </div>
+              <div>
+                <label class="field-label" for="animationStyle">Text animation</label>
+                <select id="animationStyle" data-rerender="true">
+                  <option value="typewriter">Typewriter (minimal)</option>
+                  <option value="fade">Fade</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="animationDuration">Anim duration (sec)</label>
+                <input
+                  id="animationDuration"
+                  data-rerender="true"
+                  type="number"
+                  min="0.05"
+                  max="1"
+                  step="0.05"
+                  value="0.3"
+                />
+              </div>
+            </div>
+          </details>
+
+          <details class="compact-details">
+            <summary>Export Settings</summary>
+            <div class="compact-grid">
+              <div>
+                <label class="field-label" for="outputMode">Export mode</label>
+                <select id="outputMode" data-rerender="true">
+                  <option value="composite" selected>Full video (source + dialogue)</option>
+                  <option value="overlay">Dialogue-only layer (chroma key)</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="formatPreset">Output format</label>
+                <select id="formatPreset" data-rerender="true">
+                  <option value="reels_1080x1920" selected>Reels 9:16 (1080x1920)</option>
+                  <option value="source">Match source video</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="exportFps">Export FPS</label>
+                <input id="exportFps" type="number" min="12" max="60" step="1" value="30" />
+              </div>
+              <div>
+                <label class="field-label" for="exportContainer">Export file type</label>
+                <select id="exportContainer">
+                  <option value="mp4" selected>.mp4</option>
+                  <option value="mov">.mov</option>
+                </select>
+              </div>
+            </div>
+            <p id="outputResolution" class="muted">Output: 1080x1920 (9:16)</p>
+            <div class="checkbox-wrap">
+              <input id="includeAudio" type="checkbox" checked />
+              <label for="includeAudio">Include source audio in composite mode</label>
+            </div>
+            <div class="checkbox-wrap">
+              <input id="muteSourcePreview" type="checkbox" />
+              <label for="muteSourcePreview">Mute source video in preview/editing</label>
+            </div>
+            <p class="muted">Preview is always video + caption box (no green preview).</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="panel preview-panel">
+        <div class="preview-head">
+          <h2>Live Preview</h2>
+          <div class="preview-head-actions">
+            <button id="openVideoPickerBtn" class="ghost-btn" type="button">Change Source</button>
+            <p id="currentTimeLabel" class="time-pill">00:00.00</p>
+          </div>
+        </div>
+
+        <div class="canvas-frame">
+          <button
+            id="fullscreenCornerBtn"
+            class="icon-btn fullscreen-corner-btn"
+            type="button"
+            aria-label="Toggle fullscreen preview"
+            title="Fullscreen preview"
+          >
+            &#x26F6;
+          </button>
+          <canvas id="previewCanvas" width="1080" height="1920"></canvas>
+        </div>
+        <div class="fullscreen-overlay-controls" aria-hidden="true">
+          <button id="fullscreenExitBtn" class="icon-btn fullscreen-exit-btn" type="button" aria-label="Exit fullscreen">
+            X
+          </button>
+          <input id="fullscreenSeekBar" type="range" min="0" max="0" step="0.01" value="0" aria-label="Fullscreen timeline" />
+        </div>
+
+        <div class="transport card">
+          <div class="row transport-top">
+            <div class="transport-buttons">
+              <button id="playPauseBtn" class="primary-btn" type="button">Play</button>
+              <button id="muteToggleBtn" class="ghost-btn" type="button">Mute Off</button>
+              <button id="loopToggleBtn" class="ghost-btn" type="button">Loop Off</button>
+            </div>
+            <p id="durationLabel" class="muted">Duration: --</p>
+          </div>
+          <div class="mini-timeline-wrap">
+            <div id="miniTimeline" class="mini-timeline" aria-label="Caption timeline"></div>
+          </div>
+          <input id="seekBar" type="range" min="0" max="0" step="0.01" value="0" />
+          <p class="shortcut-legend">
+            <strong>Shortcuts:</strong> <span class="legend-line"><kbd>Space</kbd> play/pause, <kbd>S</kbd> start, <kbd>M</kbd> mute, <kbd>C</kbd> add cue, <kbd>E</kbd> edit cue, <kbd>X</kbd> delete cue, <kbd>U</kbd>/<kbd>Ctrl</kbd>+<kbd>Z</kbd> undo</span><br />
+            <span class="legend-line">Move/resize in preview: dramatic cues only, cue must be visible and in edit mode (<kbd>E</kbd>). Drag box to move, drag yellow corner to resize width + height.</span>
+          </p>
+        </div>
+
+        <div class="export-row card">
+          <button id="renderBtn" class="primary-btn" type="button">Render Caption Video</button>
+          <p id="renderStatus" class="muted">Idle</p>
+          <a id="downloadLink" class="download-link" href="#" download hidden>Download rendered video</a>
+        </div>
+
+        <p class="note">
+          Tip: use <strong>Overlay export</strong> to get a green-screen file for keying in your editor. The live preview never shows green.
+        </p>
+      </section>
+    </main>
+
+    <video id="sourceVideo" playsinline preload="metadata" hidden></video>
+
+    <script type="module" src="src/main.js"></script>
+  </body>
+</html>
