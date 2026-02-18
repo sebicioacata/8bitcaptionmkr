@@ -13,6 +13,12 @@ import {
 const LOCAL_STATE_KEY = "8bitcaptionmaker:draft:v1";
 const LOCAL_SAVE_DEBOUNCE_MS = 200;
 const MAX_UNDO_STEPS = 60;
+const PLATFORM_SAFE_INSETS = Object.freeze({
+  left: 65 / 1080,
+  right: 192 / 1080,
+  top: 288 / 1920,
+  bottom: 672 / 1920
+});
 
 export class CaptionMakerApp {
   constructor() {
@@ -42,7 +48,11 @@ export class CaptionMakerApp {
       previewDrag: null,
       exportAudioContext: null,
       exportAudioSourceNode: null,
-      exportAudioDestinationNode: null
+      exportAudioDestinationNode: null,
+      exportRunId: 0,
+      lastAutoDownloadedRunId: 0,
+      dialoguePositionX: null,
+      dialoguePositionY: null
     };
     this.localSaveTimer = null;
 
@@ -111,6 +121,8 @@ export class CaptionMakerApp {
       boxWidth: document.getElementById("boxWidth"),
       boxStyle: document.getElementById("boxStyle"),
       bottomOffset: document.getElementById("bottomOffset"),
+      usePlatformSafeArea: document.getElementById("usePlatformSafeArea"),
+      manualDialoguePosition: document.getElementById("manualDialoguePosition"),
       textColor: document.getElementById("textColor"),
       chromaColor: document.getElementById("chromaColor"),
       animationStyle: document.getElementById("animationStyle"),
@@ -275,6 +287,10 @@ export class CaptionMakerApp {
         boxWidth: this.refs.boxWidth.value,
         boxStyle: this.refs.boxStyle.value,
         bottomOffset: this.refs.bottomOffset.value,
+        usePlatformSafeArea: !!this.refs.usePlatformSafeArea.checked,
+        manualDialoguePosition: !!this.refs.manualDialoguePosition.checked,
+        dialoguePositionX: Number.isFinite(this.state.dialoguePositionX) ? this.state.dialoguePositionX : null,
+        dialoguePositionY: Number.isFinite(this.state.dialoguePositionY) ? this.state.dialoguePositionY : null,
         textColor: this.refs.textColor.value,
         chromaColor: this.refs.chromaColor.value,
         animationStyle: this.refs.animationStyle.value,
@@ -352,12 +368,31 @@ export class CaptionMakerApp {
       }
 
       if (snapshot.style && typeof snapshot.style === "object") {
+        const parseOptionalPercent = (value) => {
+          if (value === null || value === undefined || value === "") {
+            return null;
+          }
+          const parsed = Number(value);
+          if (!Number.isFinite(parsed)) {
+            return null;
+          }
+          return clamp(parsed, 0, 100);
+        };
+
         this.refs.pixelScale.value = snapshot.style.pixelScale || this.refs.pixelScale.value;
         this.refs.fontSize.value = snapshot.style.fontSize || this.refs.fontSize.value;
         this.refs.textPixelation.value = snapshot.style.textPixelation || this.refs.textPixelation.value;
         this.refs.boxWidth.value = snapshot.style.boxWidth || this.refs.boxWidth.value;
         this.refs.boxStyle.value = snapshot.style.boxStyle || this.refs.boxStyle.value;
         this.refs.bottomOffset.value = snapshot.style.bottomOffset || this.refs.bottomOffset.value;
+        if (typeof snapshot.style.usePlatformSafeArea === "boolean") {
+          this.refs.usePlatformSafeArea.checked = snapshot.style.usePlatformSafeArea;
+        }
+        if (typeof snapshot.style.manualDialoguePosition === "boolean") {
+          this.refs.manualDialoguePosition.checked = snapshot.style.manualDialoguePosition;
+        }
+        this.state.dialoguePositionX = parseOptionalPercent(snapshot.style.dialoguePositionX);
+        this.state.dialoguePositionY = parseOptionalPercent(snapshot.style.dialoguePositionY);
         this.refs.textColor.value = snapshot.style.textColor || this.refs.textColor.value;
         this.refs.chromaColor.value = snapshot.style.chromaColor || this.refs.chromaColor.value;
         this.refs.animationStyle.value = snapshot.style.animationStyle || this.refs.animationStyle.value;
@@ -480,6 +515,10 @@ export class CaptionMakerApp {
       nextCaptionId: this.state.nextCaptionId,
       selectedCaptionId: this.state.selectedCaptionId,
       editingCaptionId: this.state.editingCaptionId,
+      style: {
+        dialoguePositionX: this.state.dialoguePositionX,
+        dialoguePositionY: this.state.dialoguePositionY
+      },
       form: {
         captionText: this.refs.captionText.value,
         captionStart: this.refs.captionStart.value,
@@ -511,6 +550,12 @@ export class CaptionMakerApp {
     this.state.editingCaptionId = snapshot.editingCaptionId || null;
     this.state.timelineUndoCueId = null;
     this.state.previewDrag = null;
+    this.state.dialoguePositionX = Number.isFinite(snapshot.style?.dialoguePositionX)
+      ? clamp(snapshot.style.dialoguePositionX, 0, 100)
+      : null;
+    this.state.dialoguePositionY = Number.isFinite(snapshot.style?.dialoguePositionY)
+      ? clamp(snapshot.style.dialoguePositionY, 0, 100)
+      : null;
 
     const form = snapshot.form || {};
     this.refs.captionText.value = typeof form.captionText === "string" ? form.captionText : "";
@@ -560,6 +605,10 @@ export class CaptionMakerApp {
       boxWidthPercent: clamp(parseNumber(this.refs.boxWidth.value, 85), 40, 95),
       boxStyle: this.refs.boxStyle.value,
       bottomOffset: clamp(parseNumber(this.refs.bottomOffset.value, 100), 4, 400),
+      usePlatformSafeArea: !!this.refs.usePlatformSafeArea.checked,
+      manualDialoguePosition: !!this.refs.manualDialoguePosition.checked,
+      dialoguePositionX: Number.isFinite(this.state.dialoguePositionX) ? this.state.dialoguePositionX : null,
+      dialoguePositionY: Number.isFinite(this.state.dialoguePositionY) ? this.state.dialoguePositionY : null,
       textColor: this.refs.textColor.value,
       chromaColor: this.refs.chromaColor.value,
       animationStyle: this.refs.animationStyle.value,
@@ -1319,6 +1368,25 @@ export class CaptionMakerApp {
     return { mimeType: webmMime, extension: "webm", fallbackUsed: true };
   }
 
+  autoDownloadRenderOutput(objectUrl, fileName, runId) {
+    if (!objectUrl || !fileName) {
+      return;
+    }
+
+    if (!Number.isFinite(runId) || this.state.lastAutoDownloadedRunId === runId) {
+      return;
+    }
+
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = fileName;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    this.state.lastAutoDownloadedRunId = runId;
+  }
+
   requestExportCancel() {
     if (!this.state.isExporting) {
       return;
@@ -1450,9 +1518,13 @@ export class CaptionMakerApp {
     this.state.isExporting = true;
     this.state.cancelExportRequested = false;
     this.state.cancelExportResolve = null;
+    const renderRunId = this.state.exportRunId + 1;
+    this.state.exportRunId = renderRunId;
     this.refs.renderBtn.disabled = false;
     this.refs.renderBtn.textContent = "Stop Render";
     this.refs.downloadLink.hidden = true;
+    this.refs.downloadLink.href = "#";
+    this.refs.downloadLink.download = "";
     this.refs.downloadLink.textContent = "Download rendered video";
     this.setStatus("Preparing render...");
 
@@ -1599,14 +1671,21 @@ export class CaptionMakerApp {
         }
 
         const blob = new Blob(chunks, { type: mimeType || "video/webm" });
-        this.state.renderObjectUrl = URL.createObjectURL(blob);
+        if (blob.size <= 0) {
+          this.refs.downloadLink.hidden = true;
+          this.setStatus(`Render failed (empty output). | ${formatSummary} | ${audioSummary}`);
+        } else {
+          this.state.renderObjectUrl = URL.createObjectURL(blob);
 
-        this.refs.downloadLink.href = this.state.renderObjectUrl;
-        this.refs.downloadLink.download = `${this.state.currentFileName}_captions.${recorderConfig.extension}`;
-        this.refs.downloadLink.textContent = `Download rendered video (.${recorderConfig.extension}${mimeType ? `, ${mimeType}` : ""})`;
-        this.refs.downloadLink.hidden = false;
+          const outputFileName = `${this.state.currentFileName}_captions.${recorderConfig.extension}`;
+          this.refs.downloadLink.href = this.state.renderObjectUrl;
+          this.refs.downloadLink.download = outputFileName;
+          this.refs.downloadLink.textContent = `Download rendered video (.${recorderConfig.extension}${mimeType ? `, ${mimeType}` : ""})`;
+          this.refs.downloadLink.hidden = false;
+          this.autoDownloadRenderOutput(this.state.renderObjectUrl, outputFileName, renderRunId);
 
-        this.setStatus(`Done. ${Math.round(blob.size / 1024 / 1024)} MB output ready. | ${formatSummary} | ${audioSummary}`);
+          this.setStatus(`Done. ${Math.round(blob.size / 1024 / 1024)} MB output ready. | ${formatSummary} | ${audioSummary}`);
+        }
       } else {
         this.setStatus(`Render cancelled. | ${formatSummary} | ${audioSummary}`);
       }
@@ -1690,18 +1769,31 @@ export class CaptionMakerApp {
     this.renderer.drawPreviewFrame();
   }
 
-  resolveCueWidthPercent(caption) {
-    if (Number.isFinite(caption.boxWidthPercent)) {
-      return clamp(caption.boxWidthPercent, 20, 95);
+  getPlatformSafePercentBounds() {
+    if (!this.refs.usePlatformSafeArea?.checked) {
+      return null;
     }
-    return clamp(parseNumber(this.refs.boxWidth.value, 85), 20, 95);
+
+    const minX = PLATFORM_SAFE_INSETS.left * 100;
+    const maxX = 100 - PLATFORM_SAFE_INSETS.right * 100;
+    const minY = PLATFORM_SAFE_INSETS.top * 100;
+    const maxY = 100 - PLATFORM_SAFE_INSETS.bottom * 100;
+    if (maxX <= minX || maxY <= minY) {
+      return null;
+    }
+
+    return {
+      minX,
+      maxX,
+      minY,
+      maxY,
+      width: maxX - minX,
+      height: maxY - minY
+    };
   }
 
-  resolveCueHeightPercent(caption, fallbackPercent = 10) {
-    if (Number.isFinite(caption.boxHeightPercent)) {
-      return clamp(caption.boxHeightPercent, 6, 80);
-    }
-    return clamp(fallbackPercent, 6, 80);
+  isDialogueManualPositionEnabled(cueMode) {
+    return (cueMode === "dialogue" || cueMode === "choice") && !!this.refs.manualDialoguePosition?.checked;
   }
 
   toPreviewClientLayout(layout, rect) {
@@ -1745,15 +1837,15 @@ export class CaptionMakerApp {
       return;
     }
 
-    if (this.normalizeCueMode(caption.mode) !== "dramatic") {
+    const cueMode = this.normalizeCueMode(caption.mode);
+    const dialogueManualEnabled = this.isDialogueManualPositionEnabled(cueMode);
+    const dramaticEditable =
+      cueMode === "dramatic" && !!this.state.editingCaptionId && this.state.editingCaptionId === caption.id;
+    if (!dialogueManualEnabled && !dramaticEditable) {
       return;
     }
 
-    if (!this.state.editingCaptionId || this.state.editingCaptionId !== caption.id) {
-      return;
-    }
-
-    if (this.state.selectedCaptionId !== caption.id) {
+    if (cueMode === "dramatic" && this.state.selectedCaptionId !== caption.id) {
       this.selectCaption(caption.id, { syncForm: true });
       this.renderer.drawPreviewFrame();
     }
@@ -1775,22 +1867,25 @@ export class CaptionMakerApp {
       return;
     }
 
-    const handleSize = clientLayout.handleSize || 12;
-    const handleLeft = clientLayout.x + clientLayout.width - handleSize;
-    const handleTop = clientLayout.y + clientLayout.height - handleSize;
-    const isResize = pointerX >= handleLeft && pointerY >= handleTop;
+    let isResize = false;
+    if (cueMode === "dramatic") {
+      const handleSize = clientLayout.handleSize || 12;
+      const handleLeft = clientLayout.x + clientLayout.width - handleSize;
+      const handleTop = clientLayout.y + clientLayout.height - handleSize;
+      isResize = pointerX >= handleLeft && pointerY >= handleTop;
+    }
 
     this.pushUndoSnapshot();
     event.preventDefault();
 
-    const startXPercent = Number.isFinite(caption.positionX)
-      ? caption.positionX
-      : (layout.x / Math.max(1, this.refs.previewCanvas.width)) * 100;
-    const startYPercent = Number.isFinite(caption.positionY)
-      ? caption.positionY
-      : (layout.y / Math.max(1, this.refs.previewCanvas.height)) * 100;
+    const canvasWidth = Math.max(1, this.refs.previewCanvas.width);
+    const canvasHeight = Math.max(1, this.refs.previewCanvas.height);
+    const startXPercent = (layout.x / canvasWidth) * 100;
+    const startYPercent = (layout.y / canvasHeight) * 100;
+    const startWidthPercent = (layout.width / canvasWidth) * 100;
+    const startHeightPercent = (layout.height / canvasHeight) * 100;
 
-    if (isResize) {
+    if (cueMode === "dramatic" && isResize) {
       // Lock current visual position before size changes so resize doesn't re-anchor unexpectedly.
       if (!Number.isFinite(caption.positionX)) {
         caption.positionX = roundToHundredths(clamp(startXPercent, 0, 100));
@@ -1798,21 +1893,26 @@ export class CaptionMakerApp {
       if (!Number.isFinite(caption.positionY)) {
         caption.positionY = roundToHundredths(clamp(startYPercent, 0, 100));
       }
+    } else if (dialogueManualEnabled) {
+      if (!Number.isFinite(this.state.dialoguePositionX)) {
+        this.state.dialoguePositionX = roundToHundredths(clamp(startXPercent, 0, 100));
+      }
+      if (!Number.isFinite(this.state.dialoguePositionY)) {
+        this.state.dialoguePositionY = roundToHundredths(clamp(startYPercent, 0, 100));
+      }
     }
 
     this.state.previewDrag = {
       pointerId: event.pointerId,
-      cueId: caption.id,
+      cueId: cueMode === "dramatic" ? caption.id : null,
+      target: cueMode === "dramatic" ? "cue" : "dialogue",
       mode: isResize ? "resize" : "move",
       startClientX: event.clientX,
       startClientY: event.clientY,
       startXPercent,
       startYPercent,
-      startWidthPercent: this.resolveCueWidthPercent(caption),
-      startHeightPercent: this.resolveCueHeightPercent(
-        caption,
-        (layout.height / Math.max(1, this.refs.previewCanvas.height)) * 100
-      ),
+      startWidthPercent,
+      startHeightPercent,
       moved: false
     };
 
@@ -1826,8 +1926,8 @@ export class CaptionMakerApp {
       return;
     }
 
-    const caption = this.findCaptionById(drag.cueId);
-    if (!caption) {
+    const caption = drag.target === "cue" ? this.findCaptionById(drag.cueId) : null;
+    if (drag.target === "cue" && !caption) {
       return;
     }
 
@@ -1838,21 +1938,41 @@ export class CaptionMakerApp {
 
     const deltaXPercent = ((event.clientX - drag.startClientX) / rect.width) * 100;
     const deltaYPercent = ((event.clientY - drag.startClientY) / rect.height) * 100;
+    const safeBounds = this.getPlatformSafePercentBounds();
 
-    if (drag.mode === "resize") {
-      const maxWidthForPosition = Math.max(20, 100 - clamp(drag.startXPercent, 0, 100));
-      const nextWidth = clamp(drag.startWidthPercent + deltaXPercent, 20, Math.min(95, maxWidthForPosition));
-      const maxHeightForPosition = Math.max(6, 100 - clamp(drag.startYPercent, 0, 100));
-      const nextHeight = clamp(drag.startHeightPercent + deltaYPercent, 6, Math.min(80, maxHeightForPosition));
+    if (drag.target === "cue" && drag.mode === "resize") {
+      const anchorX = safeBounds ? clamp(drag.startXPercent, safeBounds.minX, safeBounds.maxX) : clamp(drag.startXPercent, 0, 100);
+      const anchorY = safeBounds ? clamp(drag.startYPercent, safeBounds.minY, safeBounds.maxY) : clamp(drag.startYPercent, 0, 100);
+      const maxWidthForPosition = safeBounds ? Math.max(6, safeBounds.maxX - anchorX) : Math.max(20, 100 - anchorX);
+      const maxHeightForPosition = safeBounds ? Math.max(6, safeBounds.maxY - anchorY) : Math.max(6, 100 - anchorY);
+      const minWidth = Math.min(20, maxWidthForPosition);
+      const minHeight = Math.min(6, maxHeightForPosition);
+      const nextWidth = clamp(drag.startWidthPercent + deltaXPercent, minWidth, Math.min(95, maxWidthForPosition));
+      const nextHeight = clamp(drag.startHeightPercent + deltaYPercent, minHeight, Math.min(80, maxHeightForPosition));
       caption.boxWidthPercent = roundToHundredths(nextWidth);
       caption.boxHeightPercent = roundToHundredths(nextHeight);
-    } else {
-      const widthPercent = this.resolveCueWidthPercent(caption);
-      const heightPercent = this.resolveCueHeightPercent(caption, drag.startHeightPercent);
-      const nextX = clamp(drag.startXPercent + deltaXPercent, 0, Math.max(0, 100 - widthPercent));
-      const nextY = clamp(drag.startYPercent + deltaYPercent, 0, Math.max(0, 100 - heightPercent));
+    } else if (drag.target === "cue") {
+      const widthPercent = clamp(drag.startWidthPercent, 0.5, 100);
+      const heightPercent = clamp(drag.startHeightPercent, 0.5, 100);
+      const minX = safeBounds ? safeBounds.minX : 0;
+      const minY = safeBounds ? safeBounds.minY : 0;
+      const maxX = safeBounds ? Math.max(minX, safeBounds.maxX - widthPercent) : Math.max(0, 100 - widthPercent);
+      const maxY = safeBounds ? Math.max(minY, safeBounds.maxY - heightPercent) : Math.max(0, 100 - heightPercent);
+      const nextX = clamp(drag.startXPercent + deltaXPercent, minX, maxX);
+      const nextY = clamp(drag.startYPercent + deltaYPercent, minY, maxY);
       caption.positionX = roundToHundredths(nextX);
       caption.positionY = roundToHundredths(nextY);
+    } else {
+      const widthPercent = clamp(drag.startWidthPercent, 0.5, 100);
+      const heightPercent = clamp(drag.startHeightPercent, 0.5, 100);
+      const minX = safeBounds ? safeBounds.minX : 0;
+      const minY = safeBounds ? safeBounds.minY : 0;
+      const maxX = safeBounds ? Math.max(minX, safeBounds.maxX - widthPercent) : Math.max(0, 100 - widthPercent);
+      const maxY = safeBounds ? Math.max(minY, safeBounds.maxY - heightPercent) : Math.max(0, 100 - heightPercent);
+      const nextX = clamp(drag.startXPercent + deltaXPercent, minX, maxX);
+      const nextY = clamp(drag.startYPercent + deltaYPercent, minY, maxY);
+      this.state.dialoguePositionX = roundToHundredths(nextX);
+      this.state.dialoguePositionY = roundToHundredths(nextY);
     }
 
     drag.moved = true;
@@ -1872,7 +1992,9 @@ export class CaptionMakerApp {
     }
 
     if (drag.moved) {
-      this.refreshCaptionList();
+      if (drag.target === "cue") {
+        this.refreshCaptionList();
+      }
       this.scheduleLocalSave();
     } else {
       if (this.state.undoStack.length) {
@@ -1895,18 +2017,25 @@ export class CaptionMakerApp {
     }
 
     const layout = this.renderer.getInteractiveCueLayout();
-    if (
-      !layout ||
-      layout.id !== this.state.selectedCaptionId ||
-      !this.state.editingCaptionId ||
-      this.state.editingCaptionId !== layout.id
-    ) {
+    if (!layout) {
       this.refs.previewCanvas.style.cursor = "default";
       return;
     }
 
     const cursorCaption = this.findCaptionById(layout.id);
-    if (!cursorCaption || this.normalizeCueMode(cursorCaption.mode) !== "dramatic") {
+    if (!cursorCaption) {
+      this.refs.previewCanvas.style.cursor = "default";
+      return;
+    }
+
+    const cueMode = this.normalizeCueMode(cursorCaption.mode);
+    const dialogueManualEnabled = this.isDialogueManualPositionEnabled(cueMode);
+    const dramaticEditable =
+      cueMode === "dramatic" &&
+      layout.id === this.state.selectedCaptionId &&
+      !!this.state.editingCaptionId &&
+      this.state.editingCaptionId === layout.id;
+    if (!dialogueManualEnabled && !dramaticEditable) {
       this.refs.previewCanvas.style.cursor = "default";
       return;
     }
@@ -1933,7 +2062,7 @@ export class CaptionMakerApp {
     const handleSize = clientLayout.handleSize || 12;
     const handleLeft = clientLayout.x + clientLayout.width - handleSize;
     const handleTop = clientLayout.y + clientLayout.height - handleSize;
-    const resizeHit = pointerX >= handleLeft && pointerY >= handleTop;
+    const resizeHit = dramaticEditable && pointerX >= handleLeft && pointerY >= handleTop;
     this.refs.previewCanvas.style.cursor = resizeHit ? "nwse-resize" : "move";
   }
 

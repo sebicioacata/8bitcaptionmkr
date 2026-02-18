@@ -1,5 +1,12 @@
 import { clamp } from "./utils.js";
 
+const PLATFORM_SAFE_INSETS = Object.freeze({
+  left: 65 / 1080,
+  right: 192 / 1080,
+  top: 288 / 1920,
+  bottom: 672 / 1920
+});
+
 export class CaptionRenderer {
   constructor({ video, previewCanvas, getStyle, getCaptions, getSelectedCueId, getEditableCueId }) {
     this.video = video;
@@ -130,11 +137,14 @@ export class CaptionRenderer {
       return;
     }
 
+    const safeBounds = this.resolvePlatformSafeBounds(layerWidth, layerHeight, style);
     const boxWidthPercent = clamp(style.boxWidthPercent, 20, 95);
     const boxHeightPercent = 34;
     const blinkOn = Math.floor(timeSeconds * 2) % 2 === 0;
-    const boxWidth = Math.floor(layerWidth * (boxWidthPercent / 100));
-    const targetBoxHeight = Math.max(12, Math.floor(layerHeight * (boxHeightPercent / 100)));
+    const maxBoxWidth = safeBounds ? Math.max(8, safeBounds.width) : layerWidth;
+    const maxBoxHeight = safeBounds ? Math.max(12, safeBounds.height) : layerHeight;
+    const boxWidth = clamp(Math.floor(layerWidth * (boxWidthPercent / 100)), 8, maxBoxWidth);
+    const targetBoxHeight = clamp(Math.floor(layerHeight * (boxHeightPercent / 100)), 12, maxBoxHeight);
     const hasFixedHeight = false;
 
     const measureBox = (candidateFontSize) => {
@@ -187,11 +197,28 @@ export class CaptionRenderer {
     const lines = metrics.lines;
     const naturalBoxHeight = metrics.naturalHeight;
     const boxHeight = hasFixedHeight ? targetBoxHeight : naturalBoxHeight;
+    const resolvedWidthPercent = clamp((boxWidth / Math.max(1, layerWidth)) * 100, 0.5, 95);
+    const resolvedHeightPercent = clamp((boxHeight / Math.max(1, layerHeight)) * 100, 0.5, 80);
 
     const offsetPx = Math.floor(style.bottomOffset / style.pixelScale);
     const defaultX = Math.floor((layerWidth - boxWidth) / 2);
     const defaultY = Math.max(2, layerHeight - boxHeight - offsetPx);
-    const { x, y } = this.resolveCuePosition(null, defaultX, defaultY, boxWidth, boxHeight, layerWidth, layerHeight);
+    const dialoguePositionOverride =
+      style.manualDialoguePosition &&
+      Number.isFinite(style.dialoguePositionX) &&
+      Number.isFinite(style.dialoguePositionY)
+        ? { positionX: style.dialoguePositionX, positionY: style.dialoguePositionY }
+        : null;
+    const { x, y } = this.resolveCuePosition(
+      dialoguePositionOverride,
+      defaultX,
+      defaultY,
+      boxWidth,
+      boxHeight,
+      layerWidth,
+      layerHeight,
+      style
+    );
 
     this.captionCtx.save();
     this.captionCtx.globalAlpha = alpha;
@@ -248,7 +275,7 @@ export class CaptionRenderer {
     this.setActiveCueLayout(
       active.id,
       cueMode,
-      { x, y, width: boxWidth, height: boxHeight, widthPercent: boxWidthPercent, heightPercent: boxHeightPercent },
+      { x, y, width: boxWidth, height: boxHeight, widthPercent: resolvedWidthPercent, heightPercent: resolvedHeightPercent },
       layerWidth,
       layerHeight,
       outputWidth,
@@ -357,7 +384,30 @@ export class CaptionRenderer {
     return clamp(fallbackHeightPercent, 6, 80);
   }
 
-  resolveCuePosition(caption, defaultX, defaultY, width, height, layerWidth, layerHeight) {
+  resolvePlatformSafeBounds(layerWidth, layerHeight, style) {
+    if (!style?.usePlatformSafeArea) {
+      return null;
+    }
+
+    const minX = Math.floor(layerWidth * PLATFORM_SAFE_INSETS.left);
+    const maxX = Math.ceil(layerWidth * (1 - PLATFORM_SAFE_INSETS.right));
+    const minY = Math.floor(layerHeight * PLATFORM_SAFE_INSETS.top);
+    const maxY = Math.ceil(layerHeight * (1 - PLATFORM_SAFE_INSETS.bottom));
+    if (maxX <= minX || maxY <= minY) {
+      return null;
+    }
+
+    return {
+      minX,
+      maxX,
+      minY,
+      maxY,
+      width: maxX - minX,
+      height: maxY - minY
+    };
+  }
+
+  resolveCuePosition(caption, defaultX, defaultY, width, height, layerWidth, layerHeight, style = null) {
     let x = defaultX;
     let y = defaultY;
 
@@ -369,8 +419,14 @@ export class CaptionRenderer {
       y = Math.floor((clamp(caption.positionY, 0, 100) / 100) * layerHeight);
     }
 
-    x = clamp(x, 0, Math.max(0, layerWidth - width));
-    y = clamp(y, 0, Math.max(0, layerHeight - height));
+    const safeBounds = this.resolvePlatformSafeBounds(layerWidth, layerHeight, style);
+    const minX = safeBounds ? safeBounds.minX : 0;
+    const minY = safeBounds ? safeBounds.minY : 0;
+    const maxX = safeBounds ? Math.max(minX, safeBounds.maxX - width) : Math.max(0, layerWidth - width);
+    const maxY = safeBounds ? Math.max(minY, safeBounds.maxY - height) : Math.max(0, layerHeight - height);
+
+    x = clamp(x, minX, maxX);
+    y = clamp(y, minY, maxY);
     return { x, y };
   }
 
@@ -407,13 +463,16 @@ export class CaptionRenderer {
       return;
     }
 
+    const style = this.getStyle();
+    const isDramatic = this.activeCueLayout.mode === "dramatic";
+    const isDialogueLike = this.activeCueLayout.mode === "dialogue" || this.activeCueLayout.mode === "choice";
     const selectedCueId = this.getSelectedCueId();
     const editableCueId = this.getEditableCueId();
-    if (!selectedCueId || selectedCueId !== this.activeCueLayout.id || !editableCueId || editableCueId !== selectedCueId) {
-      return;
-    }
-
-    if (this.activeCueLayout.mode !== "dramatic") {
+    if (isDramatic) {
+      if (!selectedCueId || selectedCueId !== this.activeCueLayout.id || !editableCueId || editableCueId !== selectedCueId) {
+        return;
+      }
+    } else if (!isDialogueLike || !style?.manualDialoguePosition) {
       return;
     }
 
@@ -428,17 +487,19 @@ export class CaptionRenderer {
     const ph = Math.floor(height);
 
     ctx.save();
-    ctx.strokeStyle = "#f1d84a";
+    ctx.strokeStyle = isDramatic ? "#f1d84a" : "#63d7ff";
     ctx.lineWidth = 1;
     ctx.strokeRect(px, py, pw, ph);
 
-    const handleX = Math.floor(x + width - handleSize);
-    const handleY = Math.floor(y + height - handleSize);
-    ctx.fillStyle = "#f1d84a";
-    ctx.fillRect(handleX, handleY, handleSize, handleSize);
-    ctx.strokeStyle = "#1f1f1f";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(handleX + 0.5, handleY + 0.5, handleSize - 1, handleSize - 1);
+    if (isDramatic) {
+      const handleX = Math.floor(x + width - handleSize);
+      const handleY = Math.floor(y + height - handleSize);
+      ctx.fillStyle = "#f1d84a";
+      ctx.fillRect(handleX, handleY, handleSize, handleSize);
+      ctx.strokeStyle = "#1f1f1f";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(handleX + 0.5, handleY + 0.5, handleSize - 1, handleSize - 1);
+    }
     ctx.restore();
   }
 
@@ -537,12 +598,15 @@ export class CaptionRenderer {
       return null;
     }
 
+    const safeBounds = this.resolvePlatformSafeBounds(layerWidth, layerHeight, style);
     const boxWidthPercent = this.resolveCueBoxWidthPercent(caption, style.boxWidthPercent);
     const boxHeightPercent = this.resolveCueBoxHeightPercent(caption, 14);
-    const boxWidth = Math.max(24, Math.floor(layerWidth * (boxWidthPercent / 100)));
+    const maxBandWidth = safeBounds ? Math.max(16, safeBounds.width) : layerWidth;
+    const maxBandHeight = safeBounds ? Math.max(12, safeBounds.height) : layerHeight;
+    const boxWidth = clamp(Math.floor(layerWidth * (boxWidthPercent / 100)), 16, maxBandWidth);
     const maxTextWidth = Math.max(16, boxWidth - 8);
     const hasFixedHeight = Number.isFinite(caption?.boxHeightPercent);
-    const targetBandHeight = Math.max(12, Math.floor(layerHeight * (boxHeightPercent / 100)));
+    const targetBandHeight = clamp(Math.floor(layerHeight * (boxHeightPercent / 100)), 12, maxBandHeight);
 
     const measureDramatic = (candidateFontSize) => {
       const safeFontSize = clamp(Math.round(candidateFontSize), 10, 220);
@@ -603,6 +667,8 @@ export class CaptionRenderer {
     const lines = metrics.lines;
     const naturalBandHeight = metrics.naturalBandHeight;
     const bandHeight = hasFixedHeight ? targetBandHeight : naturalBandHeight;
+    const resolvedWidthPercent = clamp((boxWidth / Math.max(1, layerWidth)) * 100, 0.5, 95);
+    const resolvedHeightPercent = clamp((bandHeight / Math.max(1, layerHeight)) * 100, 0.5, 80);
     const defaultX = Math.floor((layerWidth - boxWidth) / 2);
     const defaultY = Math.max(2, Math.floor(layerHeight * 0.55 - bandHeight / 2));
     const { x: bandLeft, y: bandTop } = this.resolveCuePosition(
@@ -612,7 +678,8 @@ export class CaptionRenderer {
       boxWidth,
       bandHeight,
       layerWidth,
-      layerHeight
+      layerHeight,
+      style
     );
     const bandWidth = boxWidth;
 
@@ -652,8 +719,8 @@ export class CaptionRenderer {
       y: bandTop,
       width: bandWidth,
       height: bandHeight,
-      widthPercent: boxWidthPercent,
-      heightPercent: boxHeightPercent
+      widthPercent: resolvedWidthPercent,
+      heightPercent: resolvedHeightPercent
     };
   }
 

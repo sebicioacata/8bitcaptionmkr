@@ -142,6 +142,15 @@
               <input id="bottomOffset" data-rerender="true" type="number" min="4" max="200" step="1" value="100" />
             </div>
           </div>
+          <div class="checkbox-wrap">
+            <input id="usePlatformSafeArea" data-rerender="true" type="checkbox" checked />
+            <label for="usePlatformSafeArea">Use social-safe positioning (IG/TikTok/YouTube Shorts)</label>
+          </div>
+          <div class="checkbox-wrap">
+            <input id="manualDialoguePosition" data-rerender="true" type="checkbox" />
+            <label for="manualDialoguePosition">Manual dialogue position override (drag in preview)</label>
+          </div>
+          <p class="muted">Keeps captions inside a conservative safe zone away from app UI overlays.</p>
 
           <details class="compact-details">
             <summary>Advanced Text & Color</summary>
@@ -263,7 +272,7 @@
           <input id="seekBar" type="range" min="0" max="0" step="0.01" value="0" />
           <p class="shortcut-legend">
             <strong>Shortcuts:</strong> <span class="legend-line"><kbd>Space</kbd> play/pause, <kbd>S</kbd> start, <kbd>M</kbd> mute, <kbd>C</kbd> add cue, <kbd>E</kbd> edit cue, <kbd>X</kbd> delete cue, <kbd>U</kbd>/<kbd>Ctrl</kbd>+<kbd>Z</kbd> undo</span><br />
-            <span class="legend-line">Move/resize in preview: dramatic cues only, cue must be visible and in edit mode (<kbd>E</kbd>). Drag box to move, drag yellow corner to resize width + height.</span>
+            <span class="legend-line">Move/resize in preview: dramatic cues require edit mode (<kbd>E</kbd>) and support move + resize. Dialogue/choice cues support move-only when manual dialogue override is enabled.</span>
           </p>
         </div>
 
