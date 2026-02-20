@@ -3,8 +3,8 @@ import { clamp } from "./utils.js";
 const PLATFORM_SAFE_INSETS = Object.freeze({
   left: 65 / 1080,
   right: 192 / 1080,
-  top: 288 / 1920,
-  bottom: 672 / 1920
+  top: 240 / 1920,
+  bottom: 520 / 1920
 });
 
 export class CaptionRenderer {
@@ -101,6 +101,7 @@ export class CaptionRenderer {
     return metrics;
   }
 
+  // Draw active cue into offscreen layer, then composite into output frame.
   renderCaptionLayer(timeSeconds, style, outputWidth, outputHeight) {
     const { layerWidth, layerHeight } = this.ensureCaptionLayerSize(outputWidth, outputHeight, style.pixelScale);
     this.captionCtx.clearRect(0, 0, layerWidth, layerHeight);
@@ -384,6 +385,7 @@ export class CaptionRenderer {
     return clamp(fallbackHeightPercent, 6, 80);
   }
 
+  // Safe area clamp so caption UI avoids social-app overlays.
   resolvePlatformSafeBounds(layerWidth, layerHeight, style) {
     if (!style?.usePlatformSafeArea) {
       return null;
@@ -541,13 +543,13 @@ export class CaptionRenderer {
       return null;
     }
 
-    let selectedIndex = optionRows.findIndex((line) => line.startsWith(">"));
+    let selectedIndex = optionRows.findIndex((line) => /^\s*>/.test(line));
     if (selectedIndex < 0) {
       selectedIndex = 0;
     }
 
     const cleanedOptions = optionRows
-      .map((line) => line.replace(/^\>\s*/, "").trim())
+      .map((line) => line.replace(/^\s*\>\s*/, "").trim())
       .filter(Boolean);
     if (!cleanedOptions.length) {
       return null;
@@ -567,8 +569,10 @@ export class CaptionRenderer {
       return this.wrapText(ctx, text, maxWidth);
     }
 
+    const selectedPrefix = "> ";
+    const neutralPrefix = "  ";
     const lines = [];
-    const indicatorWidth = Math.max(4, ctx.measureText("> ").width);
+    const indicatorWidth = Math.max(4, ctx.measureText(selectedPrefix).width);
     const optionWidth = Math.max(8, maxWidth - indicatorWidth);
 
     if (parsed.prompt) {
@@ -579,13 +583,13 @@ export class CaptionRenderer {
     for (let index = 0; index < parsed.options.length; index += 1) {
       const option = parsed.options[index];
       const selected = index === parsed.selectedIndex;
-      const prefix = selected && blinkOn ? "> " : "  ";
+      const prefix = selected && blinkOn ? selectedPrefix : neutralPrefix;
       const optionLines = this.wrapText(ctx, option, optionWidth);
       const safeLines = optionLines.length ? optionLines : [""];
 
       for (let lineIndex = 0; lineIndex < safeLines.length; lineIndex += 1) {
         const content = safeLines[lineIndex];
-        lines.push(`${lineIndex === 0 ? prefix : "  "}${content}`);
+        lines.push(`${lineIndex === 0 ? prefix : neutralPrefix}${content}`);
       }
     }
 

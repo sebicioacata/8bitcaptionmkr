@@ -13,11 +13,12 @@ import {
 const LOCAL_STATE_KEY = "8bitcaptionmaker:draft:v1";
 const LOCAL_SAVE_DEBOUNCE_MS = 200;
 const MAX_UNDO_STEPS = 60;
+// Cross-platform safe insets tuned to avoid overlays without pushing dialogue too high.
 const PLATFORM_SAFE_INSETS = Object.freeze({
   left: 65 / 1080,
   right: 192 / 1080,
-  top: 288 / 1920,
-  bottom: 672 / 1920
+  top: 240 / 1920,
+  bottom: 520 / 1920
 });
 
 export class CaptionMakerApp {
@@ -78,6 +79,7 @@ export class CaptionMakerApp {
     });
   }
 
+  // Collect and cache all DOM references used by the app.
   collectRefs() {
     return {
       videoInput: document.getElementById("videoInput"),
@@ -205,6 +207,17 @@ export class CaptionMakerApp {
     this.scheduleLocalSave();
   }
 
+  parseOptionalPercent(value, min = 0, max = 100) {
+    if (value === null || value === undefined || value === "") {
+      return null;
+    }
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return null;
+    }
+    return clamp(parsed, min, max);
+  }
+
   getSanitizedLocalCaptions(captions) {
     if (!Array.isArray(captions)) {
       return [];
@@ -235,18 +248,10 @@ export class CaptionMakerApp {
         mode: this.normalizeCueMode(entry.mode),
         instantShow: !!entry.instantShow,
         textOnly: !!entry.textOnly,
-        positionX: Number.isFinite(parseNumber(entry.positionX, NaN))
-          ? clamp(parseNumber(entry.positionX, 0), 0, 100)
-          : null,
-        positionY: Number.isFinite(parseNumber(entry.positionY, NaN))
-          ? clamp(parseNumber(entry.positionY, 0), 0, 100)
-          : null,
-        boxWidthPercent: Number.isFinite(parseNumber(entry.boxWidthPercent, NaN))
-          ? clamp(parseNumber(entry.boxWidthPercent, 85), 20, 95)
-          : null,
-        boxHeightPercent: Number.isFinite(parseNumber(entry.boxHeightPercent, NaN))
-          ? clamp(parseNumber(entry.boxHeightPercent, 10), 6, 80)
-          : null
+        positionX: this.parseOptionalPercent(entry.positionX, 0, 100),
+        positionY: this.parseOptionalPercent(entry.positionY, 0, 100),
+        boxWidthPercent: this.parseOptionalPercent(entry.boxWidthPercent, 20, 95),
+        boxHeightPercent: this.parseOptionalPercent(entry.boxHeightPercent, 6, 80)
       });
     }
 
@@ -254,6 +259,7 @@ export class CaptionMakerApp {
     return sanitized;
   }
 
+  // Local draft persistence (form + style + cues).
   collectLocalState() {
     return {
       version: 1,
@@ -368,17 +374,6 @@ export class CaptionMakerApp {
       }
 
       if (snapshot.style && typeof snapshot.style === "object") {
-        const parseOptionalPercent = (value) => {
-          if (value === null || value === undefined || value === "") {
-            return null;
-          }
-          const parsed = Number(value);
-          if (!Number.isFinite(parsed)) {
-            return null;
-          }
-          return clamp(parsed, 0, 100);
-        };
-
         this.refs.pixelScale.value = snapshot.style.pixelScale || this.refs.pixelScale.value;
         this.refs.fontSize.value = snapshot.style.fontSize || this.refs.fontSize.value;
         this.refs.textPixelation.value = snapshot.style.textPixelation || this.refs.textPixelation.value;
@@ -391,8 +386,8 @@ export class CaptionMakerApp {
         if (typeof snapshot.style.manualDialoguePosition === "boolean") {
           this.refs.manualDialoguePosition.checked = snapshot.style.manualDialoguePosition;
         }
-        this.state.dialoguePositionX = parseOptionalPercent(snapshot.style.dialoguePositionX);
-        this.state.dialoguePositionY = parseOptionalPercent(snapshot.style.dialoguePositionY);
+        this.state.dialoguePositionX = this.parseOptionalPercent(snapshot.style.dialoguePositionX, 0, 100);
+        this.state.dialoguePositionY = this.parseOptionalPercent(snapshot.style.dialoguePositionY, 0, 100);
         this.refs.textColor.value = snapshot.style.textColor || this.refs.textColor.value;
         this.refs.chromaColor.value = snapshot.style.chromaColor || this.refs.chromaColor.value;
         this.refs.animationStyle.value = snapshot.style.animationStyle || this.refs.animationStyle.value;
@@ -1387,6 +1382,7 @@ export class CaptionMakerApp {
     this.state.lastAutoDownloadedRunId = runId;
   }
 
+  // Render/export pipeline driven by MediaRecorder.
   requestExportCancel() {
     if (!this.state.isExporting) {
       return;
@@ -1792,6 +1788,7 @@ export class CaptionMakerApp {
     };
   }
 
+  // Preview drag interactions (dramatic cue edits + global dialogue override).
   isDialogueManualPositionEnabled(cueMode) {
     return (cueMode === "dialogue" || cueMode === "choice") && !!this.refs.manualDialoguePosition?.checked;
   }

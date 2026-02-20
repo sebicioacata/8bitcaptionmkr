@@ -722,12 +722,12 @@ kbd {
 }
 
 .compact-details > summary::before {
-  content: "+";
+  content: "\25B8";
   margin-right: 0.35rem;
 }
 
 .compact-details[open] > summary::before {
-  content: "-";
+  content: "\25BE";
 }
 
 .compact-details[open] > summary {
