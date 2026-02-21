@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="8-Bit Dialogue Caption Maker icon">
+  <rect width="64" height="64" fill="#0b1322"/>
+  <rect x="4" y="4" width="56" height="56" fill="#101a2d" stroke="#33d6ff" stroke-width="2"/>
+
+  <rect x="12" y="16" width="40" height="24" fill="#05090f" stroke="#f4f8ff" stroke-width="2"/>
+  <rect x="10" y="26" width="4" height="2" fill="#f4f8ff"/>
+  <rect x="8" y="28" width="4" height="2" fill="#f4f8ff"/>
+
+  <rect x="18" y="22" width="20" height="3" fill="#f4f8ff"/>
+  <rect x="18" y="27" width="14" height="3" fill="#f4f8ff"/>
+
+  <polygon points="43,22 51,27 43,32" fill="#f4d24a"/>
+</svg>

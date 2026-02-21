@@ -10,7 +10,7 @@ It is optimized for reels/shorts workflows:
 
 ## UI Preview
 
-![8-Bit Dialogue Caption Maker UI](docs/ui-ss.png)
+![8-Bit Dialogue Caption Maker UI](docs/ui.png)
 
 ## What It Does
 
@@ -68,9 +68,9 @@ Use `>` in cue text to mark selected option:
 ```text
 What will you do?
 
->Call back
-Go to her
-Let her go
+>Option 1
+ Option 2
+ Option 3
 ```
 
 Rendered output shows a right-pointing chevron marker for the selected row.
@@ -82,17 +82,6 @@ Rendered output shows a right-pointing chevron marker for the selected row.
 - Dramatic cues remain independently draggable/resizable per cue in edit mode
 
 ## Run Locally
-
-### Option A: Python static server
-
-```bash
-# run from the project root
-python3 -m http.server 1234
-```
-
-Open: [http://127.0.0.1:1234](http://127.0.0.1:1234)
-
-### Option B: Live reload
 
 ```bash
 # run from the project root
